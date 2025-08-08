@@ -4125,30 +4125,37 @@ namespace ReportBuilder.Web.Models
 
         public int GetTotalRecords(string connectionString, string sqlCount, string sql, List<KeyValuePair<string, string>> parameters = null)
         {
-            int totalRecords = 0;
-
             try
             {
-                using (NpgsqlConnection conn = new NpgsqlConnection(connectionString))
+                using (var conn = new NpgsqlConnection(connectionString))
+                using (var cmd = new NpgsqlCommand(sqlCount, conn))
                 {
                     conn.Open();
 
-                    using (NpgsqlCommand command = new NpgsqlCommand(sqlCount, conn))
-                    {
-                        if (!sql.StartsWith("EXEC"))
-                            totalRecords = (int)command.ExecuteScalar();
-                    }
+                    // (If you actually need parameters on your count-query, add them here:
+                    //  parameters?.ForEach(p => cmd.Parameters.AddWithValue(p.Key, p.Value)); )
 
-                    conn.Close();
+                    object raw = cmd.ExecuteScalar();
+
+                    if (raw == null || raw == DBNull.Value)
+                        return 0;
+
+                    // If PG returned an Int64 (most likely), unbox and downcast:
+                    if (raw is long l)
+                        return (int)l;
+
+                    // If for some reason it's already an Int32:
+                    if (raw is int i)
+                        return i;
+
+                    // Fallback to Convert, which handles pretty much everything else
+                    return Convert.ToInt32(raw);
                 }
             }
             catch (Exception ex)
             {
-                // Handle exception (log, rethrow, etc.)
                 throw new Exception($"Error executing SQL query for total records: {ex.Message}", ex);
             }
-
-            return totalRecords;
         }
 
         public DataTable ExecuteQuery(string connectionString, string sql, List<KeyValuePair<string, string>> parameters = null)

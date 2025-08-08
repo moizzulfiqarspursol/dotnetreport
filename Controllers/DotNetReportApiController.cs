@@ -269,12 +269,26 @@ namespace ReportBuilder.Web.Controllers
                 {
                     throw new Exception("Query not found");
                 }
+
+                // Get database configuration first to determine database type
+                var connect = DotNetReportHelper.GetConnection();
+                var dbConfig = DotNetReportHelper.GetDbConnectionSettings(connect.AccountApiKey, connect.DatabaseApiKey);
+                if (dbConfig == null)
+                {
+                    throw new Exception("Data Connection settings not found");
+                }
+
+                var dbtype = dbConfig["DatabaseType"].ToString();
+                string connectionString = dbConfig["ConnectionString"].ToString();
+                IDatabaseConnection databaseConnection = DatabaseConnectionFactory.GetConnection(dbtype);
+
                 var allSqls = reportSql.Split(new string[] { "%2C", "," }, StringSplitOptions.RemoveEmptyEntries);
                 var dtPaged = new DataTable();
                 var dtCols = 0;
 
                 List<string> fields = new List<string>();
                 List<string> sqlFields = new List<string>();
+
                 for (int i = 0; i < allSqls.Length; i++)
                 {
                     sql = DotNetReportHelper.Decrypt(HttpUtility.HtmlDecode(allSqls[i]));
@@ -283,6 +297,7 @@ namespace ReportBuilder.Web.Controllers
                         qry = JsonSerializer.Deserialize<SqlQuery>(sql);
                         sql = qry.sql;
                     }
+
                     if (!sql.StartsWith("EXEC"))
                     {
                         var fromIndex = DotNetReportHelper.FindFromIndex(sql);
@@ -290,6 +305,7 @@ namespace ReportBuilder.Web.Controllers
 
                         var sqlFrom = $"SELECT {sqlFields[0]} {sql.Substring(fromIndex)}".Replace("{FROM}", "FROM");
                         bool hasDistinct = sql.Contains("DISTINCT");
+
                         if (hasDistinct)
                         {
                             int distinctIndex = sqlFrom.IndexOf("DISTINCT", StringComparison.OrdinalIgnoreCase) + 8;
@@ -311,6 +327,7 @@ namespace ReportBuilder.Web.Controllers
                         {
                             sqlCount = $"SELECT COUNT(*) FROM ({(sqlFrom.Contains("ORDER BY", StringComparison.OrdinalIgnoreCase) ? sqlFrom.Substring(0, sqlFrom.LastIndexOf("ORDER BY", StringComparison.OrdinalIgnoreCase)) : sqlFrom)}) AS countQry";
                         }
+
                         if (!String.IsNullOrEmpty(sortBy))
                         {
                             if (sortBy.StartsWith("DATENAME(MONTH, "))
@@ -319,7 +336,16 @@ namespace ReportBuilder.Web.Controllers
                             }
                             if (sortBy.StartsWith("MONTH(") && sortBy.Contains(")) +") && sql.Contains("Group By"))
                             {
-                                sortBy = sortBy.Replace("MONTH(", "CONVERT(VARCHAR(3), DATENAME(MONTH, ");
+                                // Handle database-specific month formatting
+                                if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES")
+                                {
+                                    sortBy = sortBy.Replace("MONTH(", "TO_CHAR(");
+                                    sortBy = sortBy.Replace(")) +", ", 'Month') ||");
+                                }
+                                else
+                                {
+                                    sortBy = sortBy.Replace("MONTH(", "CONVERT(VARCHAR(3), DATENAME(MONTH, ");
+                                }
                             }
                             if (!sql.Contains("ORDER BY"))
                             {
@@ -332,9 +358,16 @@ namespace ReportBuilder.Web.Controllers
                         }
 
                         if (!sql.Contains("ORDER BY"))
-                            sql = sql + $" ORDER BY {(hasDistinct ? "1" : "NEWID()")} ";
+                        {
+                            string orderByClause = SqlTranslator.GetDatabaseSpecificOrderBy(dbtype, hasDistinct);
+                            sql = sql + $" ORDER BY {orderByClause} ";
+                        }
+
                         if (!sql.Contains(" TOP ") && string.IsNullOrEmpty(pivotColumn))
-                            sql = sql + $" OFFSET {(pageNumber - 1) * pageSize} ROWS FETCH NEXT {pageSize} ROWS ONLY";
+                        {
+                            string pagingClause = SqlTranslator.GetDatabaseSpecificPaging(dbtype, (pageNumber - 1) * pageSize, pageSize);
+                            sql = sql + pagingClause;
+                        }
 
                         if (sql.Contains("__jsonc__"))
                             sql = sql.Replace("__jsonc__", "");
@@ -342,28 +375,36 @@ namespace ReportBuilder.Web.Controllers
                         sql = sql.Replace("{FROM}", "FROM");
                     }
 
-                    // Execute sql
-                    var connect = DotNetReportHelper.GetConnection();
-                    var dbConfig = DotNetReportHelper.GetDbConnectionSettings(connect.AccountApiKey, connect.DatabaseApiKey);
-                    if (dbConfig == null)
-                    {
-                        throw new Exception("Data Connection settings not found");
-                    }
-
-                    var dbtype = dbConfig["DatabaseType"].ToString();
-                    string connectionString = dbConfig["ConnectionString"].ToString();
-                    IDatabaseConnection databaseConnection = DatabaseConnectionFactory.GetConnection(dbtype);
+                    // Translate SQL to database-specific syntax
+                    //if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES")
+                    //{
+                    sql = SqlTranslator.TranslateToPostgreSQL(sql);
+                    sqlCount = SqlTranslator.TranslateToPostgreSQL(sqlCount);
+                    //}
 
                     var dtPagedRun = new DataTable();
 
                     if (!string.IsNullOrEmpty(pivotColumn) && !useAltPivot)
                     {
-                        sql = sql.Remove(sql.IndexOf("SELECT "), "SELECT ".Length).Insert(sql.IndexOf("SELECT "), "SELECT TOP 1 ");
+                        // Handle TOP clause for pivot
+                        if (sql.Contains("SELECT "))
+                        {
+                            string topClause = SqlTranslator.GetDatabaseSpecificTop(dbtype, 1);
+                            if (!string.IsNullOrEmpty(topClause))
+                            {
+                                sql = sql.Replace("SELECT ", $"SELECT {topClause}");
+                            }
+                            else
+                            {
+                                sql = SqlTranslator.AddLimitIfNeeded(sql, dbtype, 1);
+                            }
+                        }
                     }
                     else
                     {
                         totalRecords = databaseConnection.GetTotalRecords(connectionString, sqlCount, sql, qry.parameters);
                     }
+
 
                     dtPagedRun = databaseConnection.ExecuteQuery(connectionString, sql, qry.parameters);
                     dtPagedRun = await DotNetReportHelper.ExecuteCustomFunction(dtPagedRun, sql);
@@ -378,7 +419,7 @@ namespace ReportBuilder.Web.Controllers
                     {
                         foreach (DataColumn c in dtPagedRun.Columns) { sqlFields.Add($"{c.ColumnName} AS {c.ColumnName}"); }
                     }
-                    
+
                     string[] series = { };
                     if (i == 0)
                     {
@@ -406,7 +447,7 @@ namespace ReportBuilder.Web.Controllers
                             }
                             var keywordsToExclude = new[] { "Count", "Sum", "Max", "Avg" };
                             fields = fields
-                                .Where(field => !keywordsToExclude.Any(keyword => field.Contains(keyword)))  // Filter fields to exclude unwanted keywords
+                                .Where(field => !keywordsToExclude.Any(keyword => field.Contains(keyword)))
                                 .ToList();
                             fields.AddRange(dtPagedRun.Columns.Cast<DataColumn>().Skip(fields.Count).Select(x => $"__ AS {x.ColumnName}").ToList());
                         }
@@ -469,9 +510,17 @@ namespace ReportBuilder.Web.Controllers
                             }
                         }
                     }
-                }                
+                }
 
-                if (string.IsNullOrEmpty(pivotColumn)) sql = DotNetReportHelper.Decrypt(HttpUtility.HtmlDecode(allSqls[0]));
+                if (string.IsNullOrEmpty(pivotColumn))
+                {
+                    sql = DotNetReportHelper.Decrypt(HttpUtility.HtmlDecode(allSqls[0]));
+                    // Re-translate the original SQL for display purposes
+                    if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES")
+                    {
+                        sql = SqlTranslator.TranslateToPostgreSQL(sql);
+                    }
+                }
 
                 if (dtPaged.Rows.Count > pageSize)
                 {
@@ -496,7 +545,6 @@ namespace ReportBuilder.Web.Controllers
                 return new JsonResult(model, new JsonSerializerOptions() { PropertyNamingPolicy = null });
 
             }
-
             catch (Exception ex)
             {
                 var model = new DotNetReportResultModel
@@ -851,7 +899,7 @@ namespace ReportBuilder.Web.Controllers
 
                 var _dbtype = dbConfig["DatabaseType"]?.ToString() ?? dbtype;
                 string connectionString = dbConfig["ConnectionString"]?.ToString();
-                IDatabaseConnection databaseConnection = DatabaseConnectionFactory.GetConnection(dbtype);
+                IDatabaseConnection databaseConnection = DatabaseConnectionFactory.GetConnection(_dbtype);
 
                 var tables = new List<TableViewModel>();
                 var procedures = new List<TableViewModel>();
