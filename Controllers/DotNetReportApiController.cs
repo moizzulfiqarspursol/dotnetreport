@@ -337,7 +337,7 @@ namespace ReportBuilder.Web.Controllers
                             if (sortBy.StartsWith("MONTH(") && sortBy.Contains(")) +") && sql.Contains("Group By"))
                             {
                                 // Handle database-specific month formatting
-                                if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES")
+                                if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES" || dbtype == "Postgre Sql")
                                 {
                                     sortBy = sortBy.Replace("MONTH(", "TO_CHAR(");
                                     sortBy = sortBy.Replace(")) +", ", 'Month') ||");
@@ -376,7 +376,7 @@ namespace ReportBuilder.Web.Controllers
                     }
 
                     // Translate SQL to database-specific syntax
-                    //if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES")
+                    //if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES" || dbtype == "Postgre Sql")
                     //{
                     sql = SqlTranslator.TranslateToPostgreSQL(sql);
                     sqlCount = SqlTranslator.TranslateToPostgreSQL(sqlCount);
@@ -516,7 +516,7 @@ namespace ReportBuilder.Web.Controllers
                 {
                     sql = DotNetReportHelper.Decrypt(HttpUtility.HtmlDecode(allSqls[0]));
                     // Re-translate the original SQL for display purposes
-                    if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES")
+                    if (dbtype.ToUpper() == "POSTGRESQL" || dbtype.ToUpper() == "POSTGRES" || dbtype == "Postgre Sql")
                     {
                         sql = SqlTranslator.TranslateToPostgreSQL(sql);
                     }
