@@ -194,3 +194,7 @@ ModelManifest.xml
 /.vscode
 /src
 /*.tgz
+
+
+appsettings.json
+appsettings.dotnetreport.json
