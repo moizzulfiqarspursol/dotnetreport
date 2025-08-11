@@ -74,6 +74,29 @@ namespace ReportBuilder.Web.Helper
                 "$1 || $2",
                 RegexOptions.IgnoreCase);
 
+            // Fix boolean comparisons - Replace boolean field = 1 with boolean field = true
+            translatedSql = Regex.Replace(translatedSql,
+                @"(\""[^""]+\""\.""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*\""|""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*"")\s*=\s*1\b",
+                "$1 = true",
+                RegexOptions.IgnoreCase);
+
+            // Fix boolean comparisons - Replace boolean field = 0 with boolean field = false
+            translatedSql = Regex.Replace(translatedSql,
+                @"(\""[^""]+\""\.""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*\""|""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*"")\s*=\s*0\b",
+                "$1 = false",
+                RegexOptions.IgnoreCase);
+
+            // Fix CASE WHEN boolean comparisons for common boolean patterns
+            translatedSql = Regex.Replace(translatedSql,
+                @"WHEN\s+(\""[^""]+\""\.""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*\""|""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*"")\s*=\s*0\s+THEN\s+0",
+                "WHEN $1 = false THEN 0",
+                RegexOptions.IgnoreCase);
+
+            translatedSql = Regex.Replace(translatedSql,
+                @"WHEN\s+(\""[^""]+\""\.""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*\""|""[^""]*(?:is_breached|active|enabled|disabled|deleted|archived|published|verified|approved)[^""]*"")\s*=\s*1\s+THEN\s+1",
+                "WHEN $1 = true THEN 1",
+                RegexOptions.IgnoreCase);
+
             return translatedSql;
         }
 
