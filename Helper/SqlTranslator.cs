@@ -107,6 +107,8 @@ namespace ReportBuilder.Web.Helper
                 case "POSTGRESQL":
                 case "POSTGRES":
                     return hasDistinct ? "1" : "RANDOM()";
+                case "Postgre Sql":
+                    return hasDistinct ? "1" : "RANDOM()";
                 case "MYSQL":
                     return hasDistinct ? "1" : "RAND()";
                 case "SQLITE":
@@ -122,6 +124,7 @@ namespace ReportBuilder.Web.Helper
             {
                 case "POSTGRESQL":
                 case "POSTGRES":
+                case "Postgre Sql":
                 case "MYSQL":
                 case "SQLITE":
                     return $" OFFSET {offset} LIMIT {pageSize}";
@@ -136,6 +139,7 @@ namespace ReportBuilder.Web.Helper
             {
                 case "POSTGRESQL":
                 case "POSTGRES":
+                case "Postgre Sql":
                 case "MYSQL":
                 case "SQLITE":
                     return ""; // Will use LIMIT at the end
@@ -150,6 +154,7 @@ namespace ReportBuilder.Web.Helper
             {
                 case "POSTGRESQL":
                 case "POSTGRES":
+                case "Postgre Sql":
                 case "MYSQL":
                 case "SQLITE":
                     if (!Regex.IsMatch(sql, @"\b(LIMIT|OFFSET)\b", RegexOptions.IgnoreCase))
